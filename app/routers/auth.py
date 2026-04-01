@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import require_user
 from app.models.auth_schemas import (
-    AccessTokenResponse,
     APIKeyCreate,
     APIKeyCreated,
     APIKeyOut,
@@ -70,12 +69,17 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             detail="Incorrect email or password",
         )
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated",
+        )
 
     access_token, expires_in = svc.create_access_token(user)
     refresh_value = svc.create_refresh_token_value()
     await svc.save_refresh_token(
-        db, user.id, refresh_value,
+        db,
+        user.id,
+        refresh_value,
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
@@ -101,7 +105,8 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 )
 async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     result = await svc.rotate_refresh_token(
-        db, body.refresh_token,
+        db,
+        body.refresh_token,
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
@@ -129,18 +134,20 @@ async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Dep
 
 @auth_router.post(
     "/logout",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     summary="Revoke all active refresh tokens for the current user",
 )
-async def logout(user: User = Depends(require_user), db: AsyncSession = Depends(get_db)) -> None:
+async def logout(user: User = Depends(require_user), db: AsyncSession = Depends(get_db)) -> dict:
     from sqlalchemy import update
     from app.models.db_models import RefreshToken
+
     await db.execute(
         update(RefreshToken)
-        .where(RefreshToken.user_id == user.id, RefreshToken.revoked == False)  # noqa
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked == False)  # noqa: E712
         .values(revoked=True)
     )
     await db.commit()
+    return {"message": "Logged out successfully"}
 
 
 # ---------------------------------------------------------------------------
@@ -225,19 +232,23 @@ async def list_api_keys(
 
 @auth_router.delete(
     "/api-keys/{key_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     summary="Revoke (soft-delete) an API key",
 )
 async def revoke_api_key(
     key_id: str,
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     result = await db.execute(
         select(APIKey).where(APIKey.id == key_id, APIKey.user_id == user.id)
     )
     key = result.scalar_one_or_none()
     if not key:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
     key.is_active = False
     await db.commit()
+    return {"message": "API key revoked"}

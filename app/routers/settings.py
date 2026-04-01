@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,23 +75,25 @@ async def list_notifications(
     return await get_notifications(db, user.id, unread_only)
 
 
-@settings_router.post("/notifications/{notif_id}/read", status_code=204)
+@settings_router.post("/notifications/{notif_id}/read", status_code=status.HTTP_200_OK)
 async def read_notification(
     notif_id: str,
     user: User = Depends(require_scope("read:runs")),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     await mark_read(db, user.id, notif_id)
     await db.commit()
+    return {"message": "Notification marked as read"}
 
 
-@settings_router.post("/notifications/read-all", status_code=204)
+@settings_router.post("/notifications/read-all", status_code=status.HTTP_200_OK)
 async def read_all_notifications(
     user: User = Depends(require_scope("read:runs")),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     await mark_all_read(db, user.id)
     await db.commit()
+    return {"message": "All notifications marked as read"}
 
 
 # ---------------------------------------------------------------------------

@@ -97,10 +97,10 @@ def list_uploads(user: User = Depends(require_scope("read:runs"))) -> list[Uploa
 
 @upload_router.delete(
     "/{file_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     summary="Delete an uploaded file",
 )
-def delete_upload(file_id: str, user: User = Depends(require_scope("write:runs"))) -> None:
+def delete_upload(file_id: str, user: User = Depends(require_scope("write:runs"))) -> dict:
     record = _upload_store.get(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -112,3 +112,4 @@ def delete_upload(file_id: str, user: User = Depends(require_scope("write:runs")
     except FileNotFoundError:
         pass
     del _upload_store[file_id]
+    return {"message": "File deleted"}
