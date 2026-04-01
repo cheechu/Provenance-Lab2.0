@@ -1,156 +1,270 @@
-# CasAI Provenance Lab — Backend API
+# Provenance Lab 2.0
 
-A FastAPI backend for reproducible CRISPR base-editor design. Every design run is a fully auditable, comparable research object conforming to **W3C PROV** and the **RO-Crate Process Run Crate v0.4** profile.
-
----
+A monorepo for provenance-tracked bioinformatics workflows with FastAPI backend, Next.js frontend, PostgreSQL JSONB storage, and Prefect orchestration.
 
 ## Quick Start
 
+### Prerequisites
+
+- Docker & Docker Compose
+- Python 3.12+ (for local development)
+- Node.js 20+ (for frontend development)
+
+### Environment Setup
+
+Clone the repo and set up environment variables:
+
 ```bash
-# 1. Create a virtual environment
-python3 -m venv .venv && source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Run the server
-uvicorn app.main:app --reload --port 8000
+# Copy template (create one if needed)
+cp .env.example .env
 ```
 
-Interactive docs available at: **http://localhost:8000/docs**
+Basic `.env`:
+```
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/provenance
+PREFECT_API_URL=http://prefect-server:4200/api
+```
 
----
+### Docker Compose Start
+
+```bash
+# Build and start all services
+docker-compose up -d
+
+# Check logs
+docker-compose logs -f backend
+docker-compose logs -f prefect-server
+docker-compose logs -f postgres
+```
+
+Services will be available at:
+- **FastAPI Docs:** http://localhost:8000/docs
+- **Prefect UI:** http://localhost:4200
+- **PostgreSQL:** localhost:5432 (postgres/postgres)
+
+### Database Migrations
+
+```bash
+# Run Alembic migrations
+docker-compose exec backend alembic upgrade head
+```
+
+### Verify Services
+
+```bash
+# Health check
+curl http://localhost:8000/health
+# Should return: {"status":"ok","app":"Provenance Lab API"}
+
+# List runs (initially empty)
+curl http://localhost:8000/runs
+# Should return: []
+```
 
 ## Project Structure
 
 ```
-casai-provenance-lab/
-├── app/
-│   ├── main.py                  # FastAPI entrypoint + lifespan
-│   ├── core/
-│   │   └── config.py            # Settings (track, dirs, git SHA)
-│   ├── models/
-│   │   └── schemas.py           # All Pydantic models (RunManifest, DesignPrediction, etc.)
-│   ├── routers/
-│   │   └── api.py               # All API endpoints
-│   └── services/
-│       ├── provenance.py        # Run lifecycle, diff, leaderboard
-│       └── export_service.py    # ZIP Export Pack builder
-├── tests/
-│   └── test_api.py              # Full test suite (pytest)
-├── data/                        # Auto-created at runtime
-│   ├── runs/                    # Persisted RunManifest JSON files
-│   ├── exports/                 # Cached ZIP exports
-│   └── benchmarks/              # benchmark_results.json
-└── requirements.txt
+.
+├── backend/                    # FastAPI app (Python)
+│   ├── app/
+│   │   ├── main.py            # FastAPI entry point
+│   │   ├── config.py          # Settings (env-based)
+│   │   ├── database.py        # Async SQLAlchemy engine & session
+│   │   ├── models.py          # SQLAlchemy ORM models
+│   │   ├── schemas.py         # Pydantic request/response schemas
+│   │   ├── crud.py            # Database operations
+│   │   └── routers/
+│   │       └── runs.py        # /runs endpoints
+│   ├── flows/
+│   │   ├── hello.py           # Hello-world Prefect flow
+│   │   └── design_pipeline.py # Main orchestration flow
+│   ├── alembic/               # Database migrations
+│   │   ├── env.py
+│   │   ├── versions/
+│   │   │   └── 0001_initial_schema.py
+│   │   └── alembic.ini
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/                   # Next.js app (Node)
+├── test-fixtures/             # Sample files (PDB, etc.)
+├── docs/                       # Specs and notes
+├── docker-compose.yml
+└── README.md
+
 ```
 
----
+## API Endpoints
 
-## API Reference
+### Health & Info
+
+- `GET /health` — Health check
+- `GET /` — App info
 
 ### Runs
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/runs` | Initiate a new design run |
-| `GET` | `/runs` | List all runs (filter by track) |
-| `GET` | `/runs/{id}` | Get full RunManifest |
-| `GET` | `/runs/{id}/manifest` | Get W3C PROV JSON-LD provenance record |
-| `GET` | `/runs/{id}/diff?other_id=` | Structural diff of two runs |
-| `POST` | `/runs/rerun/{id}` | Re-run with identical archived inputs |
-| `GET` | `/runs/{id}/export.zip` | Download lab-ready Export Pack |
+- `POST /runs` — Create a new run (triggers Prefect flow)
+  ```json
+  {
+    "mode": "therapeutic",
+    "pdb_filename": "sample.pdb",
+    "config": {}
+  }
+  ```
+- `GET /runs` — List all runs
+- `GET /runs/{id}` — Get run details
+- `GET /runs/{id}/manifest` — Get provenance manifest (JSON-LD format)
 
-### Benchmarks
+## Database Schema
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/benchmarks/run` | Run in benchmark mode (writes to leaderboard) |
-| `GET` | `/benchmarks/leaderboard` | Ranked leaderboard with percentile scores |
-
----
-
-## Example: Create a Design Run
-
-```bash
-curl -X POST http://localhost:8000/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "guide_rna": {
-      "sequence": "ATGCATGCATGCATGCATGC",
-      "pam": "NGG",
-      "target_gene": "BRCA1",
-      "chromosome": "chr17",
-      "position_start": 41196312,
-      "position_end": 41196331,
-      "strand": "+"
-    },
-    "editor_config": {
-      "editor_type": "CBE",
-      "cas_variant": "nCas9",
-      "deaminase": "APOBEC3A",
-      "editing_window_start": 4,
-      "editing_window_end": 8,
-      "algorithms": ["CFD", "MIT", "DeepCRISPR"]
-    },
-    "track": "genomics_research",
-    "random_seed": 42,
-    "benchmark_mode": false
-  }'
+### Runs Table
+```sql
+CREATE TABLE runs (
+  id UUID PRIMARY KEY,
+  created_at TIMESTAMP NOT NULL,
+  status ENUM (pending, running, completed, failed) NOT NULL,
+  mode ENUM (therapeutic, crop_demo) NOT NULL,
+  pdb_filename VARCHAR,
+  pdb_path VARCHAR,
+  config JSONB NOT NULL DEFAULT '{}',
+  prefect_flow_id VARCHAR
+);
 ```
 
-## Example: Download Export Pack
-
-```bash
-curl -O http://localhost:8000/runs/{run_id}/export.zip
+### RunManifests Table
+```sql
+CREATE TABLE run_manifests (
+  id UUID PRIMARY KEY,
+  run_id UUID NOT NULL REFERENCES runs(id) UNIQUE,
+  inputs_digest VARCHAR,
+  git_sha VARCHAR,
+  docker_image VARCHAR,
+  prefect_flow_id VARCHAR,
+  created_at TIMESTAMP NOT NULL,
+  sealed_at TIMESTAMP,
+  steps JSONB NOT NULL DEFAULT '[]'
+);
 ```
 
-The ZIP contains:
-- `run.manifest.json` — W3C PROV JSON-LD provenance record
-- `report.txt` — Human-readable scoring summary with interpretability
-- `guide_rna_input.json` — Frozen input (verifiable via SHA-256)
-- `prediction.json` — Full scoring output (CFD, MIT, SHAP/LIME)
-- `cloning_oligos.json` — Forward/reverse oligos for BsmBI vector cloning
-- `validation_primers.json` — PCR primers for Sanger/NGS validation
-- `protospacer.fasta` — FASTA for guide synthesis
-- `provenance_passport.md` — Lab notebook markdown with re-run instructions
+## Prefect Integration
 
----
+The backend is configured to communicate with a Prefect server running at `http://prefect-server:4200/api`.
 
-## Tracks
+### Available Flows
 
-| Track | Key Constraint | Primary Metrics |
-|-------|---------------|-----------------|
-| `genomics_research` | General CRISPR research | CFD, MIT, CI bounds |
-| `therapeutic` | Off-target safety + structural variation risk | CFD Score, MIT Score, SV risk |
-| `crop_demo` | Polyploid genome coverage | On-target efficiency, sub-genome coverage |
+**Hello World Flow** (`flows/hello.py`)
+- Simple task-based flow for testing connectivity
 
----
+**Design Pipeline** (`flows/design_pipeline.py`)
+- Orchestrates the full provenance workflow
+- Steps: validate_pdb → generate_grna → run_scoring → seal_manifest
+- Currently stub implementations; ready for real task logic
 
-## Provenance Model
+When a run is created via `POST /runs`, the design_pipeline flow is triggered and the flow ID is stored on the Run record.
 
-Every run produces a `RunManifest` with:
-- `run_id` — UUIDv4 unique identifier
-- `inputs_digest` — SHA-256 of all frozen inputs (reproducibility guarantee)
-- `git_sha` + `docker_image` — Environment snapshot
-- `step_traces` — Per-step timestamps, command args, exit codes
-- `object` / `result` — W3C PROV Entities (inputs + outputs)
-- `conformsTo` — RO-Crate Process Run Crate v0.4 URI
+## GitHub Repository & Branch Protection (Manual Setup)
 
-To verify a run is reproducible: `POST /runs/rerun/{run_id}` and confirm `inputs_digest` matches.
+When ready to push to GitHub:
 
----
+1. **Create repo** on GitHub (cheechu/Provenance-Lab2.0)
+2. **Add remote**:
+   ```bash
+   git remote add origin https://github.com/cheechu/Provenance-Lab2.0.git
+   ```
+3. **Push main branch**:
+   ```bash
+   git branch -M main
+   git push -u origin main
+   ```
+4. **Enable branch protection** in GitHub Settings:
+   - Go to Settings → Branches → Add rule
+   - Pattern: `main`
+   - ✓ Require pull request reviews before merging (≥1)
+   - ✓ Dismiss stale pull request approvals
+   - ✓ Require status checks to pass
 
-## Running Tests
+## Development
+
+### Local Backend Dev (without Docker)
 
 ```bash
-pytest tests/ -v
+cd backend
+
+# Create virtual environment
+python3.12 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/provenance
+export PREFECT_API_URL=http://localhost:4200/api
+
+# Start FastAPI dev server
+uvicorn app.main:app --reload
+
+# In another terminal, run Alembic migrations
+alembic upgrade head
 ```
 
----
+### Local Prefect Setup
 
-## v1 Non-Goals
+```bash
+# Run Prefect server locally
+prefect server start  # UI at http://localhost:4200
+```
 
-- No clinical predictions — all outputs labeled **"in-silico hypothesis"**
-- No new GPU infrastructure — scoring uses placeholder mocks until real ML is wired
-- No authentication layer (add before production deployment)
+## Testing
+
+```bash
+# Run tests
+pytest tests/
+
+# Run with coverage
+pytest --cov=app tests/
+```
+
+## Troubleshooting
+
+### PostgreSQL connection refused
+```bash
+# Ensure postgres service is healthy
+docker-compose ps postgres
+# Should show healthy status
+```
+
+### Prefect server not responding
+```bash
+# Check if prefect-server is running
+docker-compose logs prefect-server
+
+# Restart it
+docker-compose restart prefect-server
+```
+
+### Database migrations failed
+```bash
+# View migration status
+docker-compose exec backend alembic current
+docker-compose exec backend alembic history
+
+# Downgrade if needed
+docker-compose exec backend alembic downgrade -1
+```
+
+## Next Steps
+
+1. ✅ Monorepo folder structure
+2. ✅ Docker services (FastAPI, Prefect, PostgreSQL)
+3. ✅ Async database layer
+4. ✅ Basic CRUD endpoints
+5. ✅ Prefect flow integration
+6. 🔄 Implement real bio tasks (validate_pdb, generate_grna, etc.)
+7. 🔄 Add authentication/authorization
+8. 🔄 Build Next.js frontend
+9. 🔄 Add comprehensive tests
+10. 🔄 Deploy to cloud (AWS ECS, GCP Cloud Run, etc.)
+
+## License
+
+MIT (or your preferred license)

@@ -1,37 +1,84 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  api:
-    build: .
-    container_name: casai-api
-    ports:
-      - "8000:8000"
+  # PostgreSQL database with JSONB support
+  postgres:
+    image: postgres:16-alpine
+    container_name: provenance-postgres
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./data/casai.db
-      - MOCK_ML=true
-      - JWT_SECRET_KEY=change-me-in-production
-      - DEBUG=true
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: provenance
+    ports:
+      - "5432:5432"
     volumes:
-      - ./data:/app/data
-      - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
+    networks:
+      - provenance-network
 
-  # Uncomment for Postgres in production
-  # db:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_USER: casai
-  #     POSTGRES_PASSWORD: casai
-  #     POSTGRES_DB: casai
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
+  # Prefect server (orchestration UI + API)
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: provenance-prefect-server
+    command: prefect server start
+    environment:
+      PREFECT_SERVER__ANALYTICS_ENABLED: "false"
+      PREFECT_LOGGING_LEVEL: "INFO"
+    ports:
+      - "4200:4200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - provenance-network
+    volumes:
+      - prefect_data:/root/.prefect
 
-# volumes:
-#   pgdata:
+  # FastAPI backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: provenance-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/provenance
+      PREFECT_API_URL: http://prefect-server:4200/api
+      PREFECT_HOME: /app/.prefect
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prefect-server:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    networks:
+      - provenance-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Next.js frontend (placeholder)
+  frontend:
+    image: node:20-alpine
+    container_name: provenance-frontend
+    working_dir: /app
+    command: sh -c "echo 'Frontend placeholder - add Next.js app here' && sleep infinity"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    networks:
+      - provenance-network
+
+volumes:
+  postgres_data:
+  prefect_data:
+
+networks:
+  provenance-network:
+    driver: bridge
