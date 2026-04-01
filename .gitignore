@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv
+venv/
+env/
+
+# data dirs (generated at runtime)
+data/
+*.db
+*.sqlite
+
+# exports
+*.zip
+
+# test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# models (large binary weights)
+models/*.pkl
+models/*.pt
+models/*.bin
