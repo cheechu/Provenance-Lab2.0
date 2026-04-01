@@ -65,7 +65,7 @@ function IconGear() {
 const NAV_ITEMS = [
   { href: '/runs', label: 'Runs', Icon: IconList },
   { href: '/benchmarks', label: 'Benchmarks', Icon: IconBars },
-  { href: '/leaderboard', label: 'Leaderboard', Icon: IconTrophy },
+  { href: '/leaderboard', label: 'Candidates', Icon: IconTrophy },
 ] as const
 
 // ── Shared nav-link class helpers ───────────────────────────────────────────
