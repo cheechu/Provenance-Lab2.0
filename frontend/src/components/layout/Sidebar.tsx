@@ -109,7 +109,7 @@ export function Sidebar() {
 
         {/* New Run — styled as an action, not a plain link */}
         <Link
-          href="/runs/new"
+          href="/runs"
           className="flex items-center gap-2.5 px-3 py-[7px] mb-3 rounded-md text-[13px] font-medium
                      text-teal-700 bg-teal-50 border border-teal-200/70
                      hover:bg-teal-100 hover:border-teal-300/70
